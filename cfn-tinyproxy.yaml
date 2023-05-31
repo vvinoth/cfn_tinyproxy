@@ -1,0 +1,89 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: deploy tinyproxy containers into ECS and proxy your traffic through the AWS Public IP Range (https://vvinoth.com/post/tinyproxy)
+
+Parameters:
+  ECSClusterName:
+    Type: String
+    Description: A name for your ECS Cluster - where your resources will be associated
+    Default: tinyproxy-cluster
+
+  VpcId:
+    Type: 'AWS::EC2::VPC::Id'
+    Description: Select VPC to use
+
+  SubnetIds:
+    Type: 'List<AWS::EC2::Subnet::Id>'
+    Description: Select subnets to use
+
+  ECSServiceName:
+    Type: String
+    Description: A name for your ECS Service
+    Default: tinyproxy-service
+
+  SecurityGroupIds:
+    Type: 'List<AWS::EC2::SecurityGroup::Id>'
+    Description: A security group to use - needs to have 8888 ingress
+
+  ECSTaskDefinitionName:
+    Type: String
+    Description: A name for your ECS Task Definition
+    Default: tinyproxy-taskdefinition
+
+  DesiredCount:
+    Type: String
+    Description: How many containers do you need? 1 container = 1 IP
+    Default: 1
+
+
+Resources:
+  ECSCluster:
+    Type: 'AWS::ECS::Cluster'
+    Properties:
+      ClusterName: !Ref ECSClusterName
+      CapacityProviders:
+        - FARGATE
+        - FARGATE_SPOT
+      ClusterSettings:
+        - Name: containerInsights
+          Value: disabled
+      Configuration:
+        ExecuteCommandConfiguration:
+          Logging: DEFAULT
+      ServiceConnectDefaults:
+        Namespace: !Ref ECSClusterName
+
+
+  ECSTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties: 
+      ContainerDefinitions: 
+      - Name: tinyproxy-container
+        Essential: true
+        Image: docker.io/vimagick/tinyproxy
+        PortMappings:
+          - ContainerPort: 8888
+            HostPort: 8888
+      Cpu: 512
+      Memory: 1024
+      RuntimePlatform: 
+        CpuArchitecture: X86_64
+        OperatingSystemFamily: LINUX
+      RequiresCompatibilities: 
+        - FARGATE
+      NetworkMode: awsvpc
+
+  ECSService:
+    Type: AWS::ECS::Service
+    Properties:
+      Cluster: !Ref ECSCluster
+      TaskDefinition: !Ref ECSTaskDefinition
+      LaunchType: FARGATE
+      ServiceName: !Ref ECSServiceName
+      SchedulingStrategy: REPLICA
+      DesiredCount: !Ref DesiredCount
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          SecurityGroups: !Ref SecurityGroupIds
+          Subnets: !Ref SubnetIds
+      PlatformVersion: LATEST
